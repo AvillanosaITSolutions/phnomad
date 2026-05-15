@@ -62,6 +62,7 @@ export function DashboardPage() {
     }
 
     const smsCredits = subscriptionQuery.data?.smsCredits ?? 0;
+    const canSendNow = smsCredits > 0;
     const daysLeft = daysUntil(visa.expiryDate);
     const rule = getVisaRule(visa.visaType);
     const status = visaStatus(daysLeft);
@@ -147,12 +148,17 @@ export function DashboardPage() {
                 <section className="mb-8 space-y-3">
                     <button
                         className="w-full rounded-2xl bg-emerald-600 px-6 py-5 text-2xl font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={sendNowMutation.isPending}
+                        disabled={sendNowMutation.isPending || !canSendNow}
                         onClick={async () => {
+                            if (!canSendNow) return;
                             await sendNowMutation.mutateAsync();
                         }}
                     >
-                        {sendNowMutation.isPending ? '⏳ Sending...' : '📱 Send Reminder Now'}
+                        {sendNowMutation.isPending
+                            ? '⏳ Sending...'
+                            : canSendNow
+                                ? '📱 Send Reminder Now'
+                                : '📱 No SMS Credits'}
                     </button>
 
                     <Link
@@ -288,12 +294,17 @@ export function DashboardPage() {
                         <div className="space-y-3">
                             <button
                                 className="w-full rounded-xl bg-emerald-600 px-4 py-4 text-base font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                disabled={sendNowMutation.isPending}
+                                disabled={sendNowMutation.isPending || !canSendNow}
                                 onClick={async () => {
+                                    if (!canSendNow) return;
                                     await sendNowMutation.mutateAsync();
                                 }}
                             >
-                                {sendNowMutation.isPending ? '⏳ Sending...' : '📱 Send Now'}
+                                {sendNowMutation.isPending
+                                    ? '⏳ Sending...'
+                                    : canSendNow
+                                        ? '📱 Send Now'
+                                        : '📱 No SMS Credits'}
                             </button>
 
                             <Link

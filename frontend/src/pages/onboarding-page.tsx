@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { VisaForm } from '../features/visa/visa-form';
 import { createVisa, updateVisa, getVisas, type VisaPayload } from '../features/visa/visa-api';
 import { useAuth } from '../features/auth/auth-context';
@@ -10,14 +10,14 @@ export function OnboardingPage() {
     const navigate = useNavigate();
     const { id: visaId } = useParams<{ id: string }>();
 
-    // Fetch existing visa if in edit mode
+    // Always fetch visas so onboarding can guard against duplicate create.
     const visasQuery = useQuery({
         queryKey: ['visas'],
         queryFn: async () => {
             if (!token) throw new Error('Missing token');
             return getVisas(token);
         },
-        enabled: Boolean(token) && Boolean(visaId),
+        enabled: Boolean(token),
     });
 
     const editingVisa = visasQuery.data?.find((v) => v.id === visaId);
@@ -45,10 +45,15 @@ export function OnboardingPage() {
     });
 
     const isEditing = Boolean(visaId);
-    const isLoading = isEditing && visasQuery.isLoading;
+    const hasExistingVisa = (visasQuery.data?.length ?? 0) > 0;
+    const isLoading = visasQuery.isLoading;
 
     if (isLoading) {
         return <div className="p-8 text-center text-slate-600">Loading visa details...</div>;
+    }
+
+    if (!isEditing && hasExistingVisa) {
+        return <Navigate to="/dashboard" replace />;
     }
 
     const initialValue: VisaPayload | undefined = editingVisa

@@ -27,6 +27,16 @@ export class VisasService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const existingVisa = await tx.visa.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      // Idempotency guard: if user already has a visa, return it instead of creating a duplicate.
+      if (existingVisa) {
+        return existingVisa;
+      }
+
       const visa = await tx.visa.create({
         data: {
           userId,

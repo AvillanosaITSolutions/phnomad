@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../features/auth/auth-context';
@@ -11,10 +11,7 @@ export function TopUpPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [selectedPackage, setSelectedPackage] = useState<TopUpPackage | null>(topUpPackages[0] ?? null);
     const topUpStatus = searchParams.get('topup');
-    // Track if we should poll for credits (only after payment)
     const [shouldPollCredits, setShouldPollCredits] = useState(topUpStatus === 'success');
-    // Track last credits to detect update
-    const [lastCredits, setLastCredits] = useState<number | null>(null);
 
     const subscriptionQuery = useQuery({
         queryKey: ['subscription'],
@@ -23,21 +20,25 @@ export function TopUpPage() {
             return getMySubscription(token);
         },
         enabled: Boolean(token),
-        refetchInterval: shouldPollCredits ? 1000 : false, // poll every 1s if needed
-        onSuccess: (data) => {
-            const credits = data?.smsCredits ?? 0;
-            // If we were polling for credits and now credits increased, stop polling and clean up URL
-            if (shouldPollCredits && credits > 0 && credits !== lastCredits) {
-                setShouldPollCredits(false);
-                setLastCredits(credits);
-                // Remove ?topup=success from URL without reload
-                searchParams.delete('topup');
-                setSearchParams(searchParams, { replace: true });
-            } else if (shouldPollCredits) {
-                setLastCredits(credits);
-            }
-        },
+        refetchInterval: shouldPollCredits ? 1000 : false,
     });
+
+    useEffect(() => {
+        if (topUpStatus !== 'success' && shouldPollCredits) {
+            setShouldPollCredits(false);
+            return;
+        }
+
+        if (!shouldPollCredits) return;
+
+        const credits = subscriptionQuery.data?.smsCredits ?? 0;
+        if (credits <= 0) return;
+
+        setShouldPollCredits(false);
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('topup');
+        setSearchParams(nextParams, { replace: true });
+    }, [shouldPollCredits, subscriptionQuery.data, topUpStatus, searchParams, setSearchParams]);
 
     const topUpMutation = useMutation({
         mutationFn: async (payload: { packageId: string; sendMode: 'send_to_one' | 'send_to_many'; ccEmailRecipients?: string[]; ccSmsRecipients?: string[] }) => {

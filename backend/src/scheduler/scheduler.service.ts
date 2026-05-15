@@ -22,6 +22,28 @@ export class SchedulerService implements OnModuleInit {
     await this.registerTasks();
   }
 
+  private toDate(value: unknown): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    if (value instanceof Date) {
+      return value;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const candidate = value as { toJSDate?: () => Date; toDate?: () => Date };
+      if (typeof candidate.toJSDate === 'function') {
+        return candidate.toJSDate();
+      }
+      if (typeof candidate.toDate === 'function') {
+        return candidate.toDate();
+      }
+    }
+
+    return null;
+  }
+
   private async ensureDefaultTask(): Promise<void> {
     await this.prisma.scheduledTask.upsert({
       where: { name: this.reminderJobName },
@@ -63,6 +85,11 @@ export class SchedulerService implements OnModuleInit {
       where: { enabled: true },
     });
 
+    if (tasks.length === 0) {
+      this.logger.warn('No enabled scheduled tasks found.');
+      return;
+    }
+
     for (const task of tasks) {
       const existing = this.schedulerRegistry.doesExist('cron', task.name);
       if (existing) {
@@ -78,13 +105,60 @@ export class SchedulerService implements OnModuleInit {
           timeZone: task.timezone,
           start: false,
           onTick: async () => {
-            await this.processReminderSweep(task);
+            await this.executeTask(task.name);
           },
         });
 
         this.schedulerRegistry.addCronJob(task.name, cronJob);
         cronJob.start();
+
+        const nextRunAt = this.toDate(cronJob.nextDate());
+        await this.prisma.scheduledTask.update({
+          where: { id: task.id },
+          data: { nextRunAt },
+        });
+
+        this.logger.log(
+          `Registered cron task ${task.name} (${task.cronExpression} ${task.timezone})` +
+            `${nextRunAt ? ` next run: ${nextRunAt.toISOString()}` : ''}`,
+        );
       }
+    }
+  }
+
+  private async executeTask(taskName: string): Promise<void> {
+    const task = await this.prisma.scheduledTask.findUnique({
+      where: { name: taskName },
+    });
+
+    if (!task || !task.enabled) {
+      this.logger.warn(
+        `Skipping task ${taskName} because it is missing or disabled.`,
+      );
+      return;
+    }
+
+    try {
+      if (
+        task.handler === 'dailyVisaReminderSweep' ||
+        task.handler === 'temporaryVisaReminderSweep'
+      ) {
+        await this.processReminderSweep(task);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Task ${task.name} failed: ${message}`);
+    } finally {
+      const cronJob = this.schedulerRegistry.getCronJob(task.name);
+      const nextRunAt = this.toDate(cronJob.nextDate());
+
+      await this.prisma.scheduledTask.update({
+        where: { id: task.id },
+        data: {
+          lastRunAt: new Date(),
+          nextRunAt,
+        },
+      });
     }
   }
 
@@ -92,7 +166,7 @@ export class SchedulerService implements OnModuleInit {
     const visas = await this.prisma.visa.findMany();
     const now = new Date();
 
-    await Promise.all(
+    const results = await Promise.allSettled(
       visas.map(async (visa: Visa) => {
         const msPerDay = 1000 * 60 * 60 * 24;
         const daysLeft = Math.ceil(
@@ -109,10 +183,14 @@ export class SchedulerService implements OnModuleInit {
       }),
     );
 
-    await this.prisma.scheduledTask.update({
-      where: { id: task.id },
-      data: { lastRunAt: new Date() },
-    });
+    const failedCount = results.filter(
+      (result) => result.status === 'rejected',
+    ).length;
+    if (failedCount > 0) {
+      this.logger.warn(
+        `Reminder job ${task.name} completed with ${failedCount} failed visa reminders.`,
+      );
+    }
 
     this.logger.log(`Reminder job completed: ${task.name}`);
   }

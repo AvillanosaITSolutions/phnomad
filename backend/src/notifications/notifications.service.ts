@@ -20,11 +20,12 @@ export class NotificationsService {
     options?: { force?: boolean },
   ): Promise<void> {
     const force = options?.force ?? false;
+    const expiryCycleKey = visa.expiryDate.toISOString().slice(0, 10);
     const dayTag = force
       ? `manual-${new Date().toISOString()}`
       : daysLeft >= 0
-        ? `${daysLeft}d`
-        : 'expired';
+        ? `${daysLeft}d:${expiryCycleKey}`
+        : `expired:${expiryCycleKey}`;
 
     if (visa.smsEnabled) {
       const sentAlready = force
