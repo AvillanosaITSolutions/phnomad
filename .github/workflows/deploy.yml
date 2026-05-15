@@ -213,6 +213,9 @@ jobs:
             echo "Validating compose configuration..."
             docker compose --env-file .env config
 
+            echo "Stopping existing stack before port checks..."
+            docker compose --env-file .env down || true
+
             echo "Releasing ports 80/443 for Traefik..."
             for svc in nginx apache2 caddy; do
               if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$svc"; then
@@ -221,10 +224,19 @@ jobs:
               fi
             done
 
-            conflict_ids=$(docker ps --format '{{.ID}} {{.Ports}} {{.Names}}' | awk '/(^|,)0\.0\.0\.0:80->|(^|,)0\.0\.0\.0:443->|(^|,):::80->|(^|,):::443->/ {print $1}')
+            conflict_ids=$(printf "%s\n%s\n" "$(docker ps -q --filter publish=80)" "$(docker ps -q --filter publish=443)" | sort -u | sed '/^$/d')
             if [ -n "$conflict_ids" ]; then
               echo "Stopping containers using 80/443: $conflict_ids"
               echo "$conflict_ids" | xargs -r docker rm -f
+            fi
+
+            if ss -ltnp '( sport = :80 or sport = :443 )' | grep -E ':80 |:443 ' >/dev/null; then
+              echo "Ports still occupied after container cleanup. Attempting one more docker publisher sweep..."
+              docker ps --format 'table {{.ID}}\t{{.Names}}\t{{.Ports}}'
+              conflict_ids=$(docker ps --format '{{.ID}} {{.Ports}}' | awk '$0 ~ /:80->|:443->/ {print $1}' | sort -u)
+              if [ -n "$conflict_ids" ]; then
+                echo "$conflict_ids" | xargs -r docker rm -f
+              fi
             fi
 
             if ss -ltn '( sport = :80 or sport = :443 )' | grep -E ':80 |:443 ' >/dev/null; then
@@ -233,7 +245,6 @@ jobs:
               exit 1
             fi
 
-            docker compose --env-file .env down || true
             docker compose --env-file .env up -d --build --remove-orphans --force-recreate
             echo "Current container status:"
             docker compose --env-file .env ps -a
