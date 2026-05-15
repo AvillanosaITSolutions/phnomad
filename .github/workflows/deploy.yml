@@ -155,15 +155,35 @@ jobs:
             VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}
             ENVEOF
 
+            for key in \
+              POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL DATABASE_URL JWT_SECRET \
+              GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL \
+              PHILSMS_API_URL PHILSMS_API_TOKEN PHILSMS_SENDER_ID \
+              GMAIL_USER GMAIL_APP_PASSWORD PAYMONGO_SECRET_KEY PAYMONGO_WEBHOOK_AUTH \
+              VITE_API_URL VITE_GOOGLE_CLIENT_ID; do
+              value=$(grep -E "^${key}=" .env | head -n1 | cut -d'=' -f2-)
+              if [ -z "$value" ]; then
+                echo "Generated .env has missing or empty key: $key"
+                exit 1
+              fi
+            done
+
             echo "Validating compose configuration..."
-            docker compose config
-            docker compose down || true
-            docker compose up -d --build --remove-orphans
+            docker compose --env-file .env config
+            docker compose --env-file .env down || true
+            docker compose --env-file .env up -d --build --remove-orphans --force-recreate
             sleep 3
             echo "Current container status:"
-            docker compose ps -a
+            docker compose --env-file .env ps -a
             echo "Matching containers on host:"
             docker ps -a --filter "name=visa-reminder" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+            echo "Validating env injection inside containers (masked):"
+            docker inspect visa-reminder-backend --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+              grep -E '^(GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|GOOGLE_CALLBACK_URL|JWT_SECRET|FRONTEND_URL|DATABASE_URL|PHILSMS_API_TOKEN|PAYMONGO_SECRET_KEY)=' | \
+              sed -E 's/^([^=]+)=.*$/\1=SET/'
+            docker inspect visa-reminder-frontend --format '{{range .Config.Env}}{{println .}}{{end}}' | \
+              grep -E '^(VITE_API_URL|VITE_GOOGLE_CLIENT_ID)=' | \
+              sed -E 's/^([^=]+)=.*$/\1=SET/'
             echo "Recent container logs:"
-            docker compose logs --tail=50
+            docker compose --env-file .env logs --tail=50
           EOF
