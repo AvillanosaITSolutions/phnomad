@@ -47,7 +47,6 @@ jobs:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
@@ -67,7 +66,7 @@ jobs:
           missing=0
           for key in \
             ACME_EMAIL APP_DOMAIN WWW_DOMAIN API_DOMAIN \
-            POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL DATABASE_URL JWT_SECRET \
+            POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL JWT_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL \
             PHILSMS_API_URL PHILSMS_API_TOKEN PHILSMS_SENDER_ID \
             GMAIL_USER GMAIL_APP_PASSWORD PAYMONGO_SECRET_KEY PAYMONGO_WEBHOOK_AUTH \
@@ -108,7 +107,6 @@ jobs:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
@@ -164,7 +162,7 @@ jobs:
           BACKEND_PORT=${BACKEND_PORT}
           ENABLE_HTTPS=false
           FRONTEND_URL=${FRONTEND_URL}
-          DATABASE_URL=${DATABASE_URL}
+          DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
           JWT_SECRET=${JWT_SECRET}
           GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
           GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
@@ -276,6 +274,35 @@ jobs:
               exit 1
             fi
 
+            echo "Starting postgres first to ensure credential sync..."
+            docker compose --env-file .env up -d --remove-orphans --force-recreate postgres
+
+            echo "Waiting for postgres health..."
+            for i in $(seq 1 30); do
+              pg_status=$(docker inspect visa-reminder-postgres --format '{{.State.Health.Status}}' 2>/dev/null || true)
+              if [ "$pg_status" = "healthy" ]; then
+                echo "Postgres is healthy."
+                break
+              fi
+              echo "[$i/30] Waiting for postgres health (status: ${pg_status:-unknown})"
+              sleep 2
+            done
+
+            pg_status=$(docker inspect visa-reminder-postgres --format '{{.State.Health.Status}}' 2>/dev/null || true)
+            if [ "$pg_status" != "healthy" ]; then
+              echo "Postgres did not become healthy in time."
+              docker compose --env-file .env logs --tail=200 postgres || true
+              exit 1
+            fi
+
+            db_user=$(grep -E '^POSTGRES_USER=' .env | head -n1 | cut -d'=' -f2-)
+            db_password=$(grep -E '^POSTGRES_PASSWORD=' .env | head -n1 | cut -d'=' -f2-)
+            db_password_sql=$(printf "%s" "$db_password" | sed "s/'/''/g")
+
+            echo "Synchronizing database user password to match deployment env..."
+            docker exec -u postgres visa-reminder-postgres psql -d postgres -v ON_ERROR_STOP=1 -c "ALTER USER \"${db_user}\" WITH PASSWORD '${db_password_sql}';"
+
+            echo "Starting full stack..."
             docker compose --env-file .env up -d --build --remove-orphans --force-recreate
             echo "Current container status:"
             docker compose --env-file .env ps -a
