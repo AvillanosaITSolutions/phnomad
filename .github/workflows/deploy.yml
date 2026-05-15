@@ -394,8 +394,8 @@ jobs:
               curl -vkI --resolve "${domain}:443:127.0.0.1" "https://${domain}/" 2>&1 | tail -n 40 || true
               echo "Certificate presented by Traefik on 127.0.0.1:443 for SNI=${domain}:"
               echo | openssl s_client -servername "$domain" -connect 127.0.0.1:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -ext subjectAltName || true
-              echo "ACME domains found in /letsencrypt/acme.json:"
-              docker exec visa-reminder-traefik sh -lc "grep -Eo '\\"main\\":\\"[^\\"]+\\"|\\"sans\\":\\[[^]]*\\]' /letsencrypt/acme.json | head -n 80" || true
+              echo "ACME file preview (/letsencrypt/acme.json):"
+              docker exec visa-reminder-traefik sh -lc 'if [ -f /letsencrypt/acme.json ]; then sed -n "1,80p" /letsencrypt/acme.json; else echo "acme.json missing"; fi' || true
               echo "-------------------------------------"
             }
 
