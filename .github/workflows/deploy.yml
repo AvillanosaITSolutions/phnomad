@@ -91,6 +91,52 @@ jobs:
             exit 1
           }
 
+      - name: Generate deployment env file
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_CALLBACK_URL: ${{ secrets.GOOGLE_CALLBACK_URL }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          PHILSMS_API_URL: ${{ secrets.PHILSMS_API_URL }}
+          PHILSMS_API_TOKEN: ${{ secrets.PHILSMS_API_TOKEN }}
+          PHILSMS_SENDER_ID: ${{ secrets.PHILSMS_SENDER_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          PAYMONGO_SECRET_KEY: ${{ secrets.PAYMONGO_SECRET_KEY }}
+          PAYMONGO_WEBHOOK_AUTH: ${{ secrets.PAYMONGO_WEBHOOK_AUTH }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+        run: |
+          cat > .env.deploy <<EOF
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+          BACKEND_PORT=${BACKEND_PORT}
+          FRONTEND_URL=${FRONTEND_URL}
+          DATABASE_URL=${DATABASE_URL}
+          JWT_SECRET=${JWT_SECRET}
+          GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+          GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+          GOOGLE_CALLBACK_URL=${GOOGLE_CALLBACK_URL}
+          ADMIN_EMAILS=${ADMIN_EMAILS}
+          PHILSMS_API_URL=${PHILSMS_API_URL}
+          PHILSMS_API_TOKEN=${PHILSMS_API_TOKEN}
+          PHILSMS_SENDER_ID=${PHILSMS_SENDER_ID}
+          GMAIL_USER=${GMAIL_USER}
+          GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
+          PAYMONGO_SECRET_KEY=${PAYMONGO_SECRET_KEY}
+          PAYMONGO_WEBHOOK_AUTH=${PAYMONGO_WEBHOOK_AUTH}
+          VITE_API_URL=${VITE_API_URL}
+          VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
+          EOF
+
       - name: Sync repository to VPS
         env:
           VPS_HOST: 88.222.245.88
@@ -132,29 +178,8 @@ jobs:
 
             cd "${APP_DIR}"
             test -f docker-compose.yml
-
-            cat > .env << 'ENVEOF'
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-            BACKEND_PORT=${{ secrets.BACKEND_PORT }}
-            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
-            GOOGLE_CALLBACK_URL=${{ secrets.GOOGLE_CALLBACK_URL }}
-            ADMIN_EMAILS=${{ secrets.ADMIN_EMAILS }}
-            PHILSMS_API_URL=${{ secrets.PHILSMS_API_URL }}
-            PHILSMS_API_TOKEN=${{ secrets.PHILSMS_API_TOKEN }}
-            PHILSMS_SENDER_ID=${{ secrets.PHILSMS_SENDER_ID }}
-            GMAIL_USER=${{ secrets.GMAIL_USER }}
-            GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
-            PAYMONGO_SECRET_KEY=${{ secrets.PAYMONGO_SECRET_KEY }}
-            PAYMONGO_WEBHOOK_AUTH=${{ secrets.PAYMONGO_WEBHOOK_AUTH }}
-            VITE_API_URL=${{ secrets.VITE_API_URL }}
-            VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-            ENVEOF
+            test -f .env.deploy
+            mv .env.deploy .env
 
             for key in \
               POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL DATABASE_URL JWT_SECRET \
