@@ -38,6 +38,10 @@ jobs:
 
       - name: Validate required app secrets
         env:
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+          WWW_DOMAIN: ${{ secrets.WWW_DOMAIN }}
+          API_DOMAIN: ${{ secrets.API_DOMAIN }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
@@ -61,6 +65,7 @@ jobs:
           set -e
           missing=0
           for key in \
+            ACME_EMAIL APP_DOMAIN API_DOMAIN \
             POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL DATABASE_URL JWT_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL \
             PHILSMS_API_URL PHILSMS_API_TOKEN PHILSMS_SENDER_ID \
@@ -93,6 +98,10 @@ jobs:
 
       - name: Generate deployment env file
         env:
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+          WWW_DOMAIN: ${{ secrets.WWW_DOMAIN }}
+          API_DOMAIN: ${{ secrets.API_DOMAIN }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
@@ -115,10 +124,15 @@ jobs:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         run: |
           cat > .env.deploy <<EOF
+          ACME_EMAIL=${ACME_EMAIL}
+          APP_DOMAIN=${APP_DOMAIN}
+          WWW_DOMAIN=${WWW_DOMAIN}
+          API_DOMAIN=${API_DOMAIN}
           POSTGRES_USER=${POSTGRES_USER}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           POSTGRES_DB=${POSTGRES_DB}
           BACKEND_PORT=${BACKEND_PORT}
+          ENABLE_HTTPS=false
           FRONTEND_URL=${FRONTEND_URL}
           DATABASE_URL=${DATABASE_URL}
           JWT_SECRET=${JWT_SECRET}
@@ -135,6 +149,7 @@ jobs:
           PAYMONGO_WEBHOOK_AUTH=${PAYMONGO_WEBHOOK_AUTH}
           VITE_API_URL=${VITE_API_URL}
           VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
+          VITE_DEV_HTTPS=false
           EOF
 
       - name: Sync repository to VPS
@@ -182,6 +197,7 @@ jobs:
             mv .env.deploy .env
 
             for key in \
+              ACME_EMAIL APP_DOMAIN API_DOMAIN \
               POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL DATABASE_URL JWT_SECRET \
               GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL \
               PHILSMS_API_URL PHILSMS_API_TOKEN PHILSMS_SENDER_ID \
@@ -203,6 +219,7 @@ jobs:
             docker compose --env-file .env ps -a
             echo "Matching containers on host:"
             docker ps -a --filter "name=visa-reminder" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+            docker ps -a --filter "name=visa-reminder-traefik" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
             echo "Validating env injection inside containers (masked):"
             backend_env=$(docker inspect visa-reminder-backend --format '{{range .Config.Env}}{{println .}}{{end}}')
             frontend_env=$(docker inspect visa-reminder-frontend --format '{{range .Config.Env}}{{println .}}{{end}}')
@@ -233,8 +250,9 @@ jobs:
             [ "$frontend_api_url" != "https://localhost:3000" ] || { echo "VITE_API_URL is still localhost fallback"; exit 1; }
 
             echo "Running post-deploy reachability checks on VPS..."
-            curl -ksSf https://127.0.0.1:3000/auth/me > /dev/null || { echo "Backend HTTPS endpoint is not reachable"; exit 1; }
-            curl -ksSf https://127.0.0.1:5173 > /dev/null || { echo "Frontend HTTPS endpoint is not reachable"; exit 1; }
+            curl -sSf http://127.0.0.1:3000/auth/me > /dev/null || { echo "Backend HTTP endpoint is not reachable"; exit 1; }
+            curl -sSf http://127.0.0.1:5173 > /dev/null || { echo "Frontend HTTP endpoint is not reachable"; exit 1; }
+            curl -sSf http://127.0.0.1:80 > /dev/null || { echo "Traefik HTTP entrypoint is not reachable"; exit 1; }
             echo "Recent container logs:"
             docker compose --env-file .env logs --tail=50
           EOF

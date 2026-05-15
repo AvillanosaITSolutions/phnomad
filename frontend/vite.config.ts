@@ -8,6 +8,10 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 function resolveHttpsConfig() {
+  if (String(process.env.VITE_DEV_HTTPS ?? 'true').toLowerCase() === 'false') {
+    return undefined
+  }
+
   const candidateDirs = [
     path.resolve(__dirname, '../certs'),
     path.resolve(__dirname, './certs'),
@@ -24,7 +28,7 @@ function resolveHttpsConfig() {
     }
   }
 
-  return false
+  return undefined
 }
 
 // https://vite.dev/config/

@@ -1,6 +1,28 @@
 name: visa-reminder
 
 services:
+  traefik:
+    image: traefik:v3.1
+    container_name: visa-reminder-traefik
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@expatvisareminders.com}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+
   postgres:
     image: postgres:16
     container_name: visa-reminder-postgres
@@ -26,6 +48,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: ${BACKEND_PORT:-3000}
+      ENABLE_HTTPS: ${ENABLE_HTTPS:-false}
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost:5173}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/visa_reminder?schema=public}
       JWT_SECRET: ${JWT_SECRET:-replace-with-a-strong-secret}
@@ -40,13 +63,20 @@ services:
       PAYMONGO_SECRET_KEY: ${PAYMONGO_SECRET_KEY:-}
       PAYMONGO_WEBHOOK_AUTH: ${PAYMONGO_WEBHOOK_AUTH:-}
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     volumes:
       - ./certs:/app/certs:ro
     command: sh -c "npx prisma db push && node dist/main"
     depends_on:
       postgres:
         condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.visa-reminder-api.rule=Host(`${API_DOMAIN:-api.expatvisareminders.com}`)
+      - traefik.http.routers.visa-reminder-api.entrypoints=websecure
+      - traefik.http.routers.visa-reminder-api.tls=true
+      - traefik.http.routers.visa-reminder-api.tls.certresolver=letsencrypt
+      - traefik.http.services.visa-reminder-api.loadbalancer.server.port=3000
 
   frontend:
     build:
@@ -56,12 +86,21 @@ services:
     environment:
       VITE_API_URL: ${VITE_API_URL:-https://localhost:3000}
       VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+      VITE_DEV_HTTPS: ${VITE_DEV_HTTPS:-false}
     ports:
-      - '5173:5173'
+      - '127.0.0.1:5173:5173'
     volumes:
       - ./certs:/app/certs:ro
     depends_on:
       - backend
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.visa-reminder-web.rule=Host(`${APP_DOMAIN:-expatvisareminders.com}`) || Host(`${WWW_DOMAIN:-www.expatvisareminders.com}`)
+      - traefik.http.routers.visa-reminder-web.entrypoints=websecure
+      - traefik.http.routers.visa-reminder-web.tls=true
+      - traefik.http.routers.visa-reminder-web.tls.certresolver=letsencrypt
+      - traefik.http.services.visa-reminder-web.loadbalancer.server.port=5173
 
 volumes:
   pgdata:
+  letsencrypt:
