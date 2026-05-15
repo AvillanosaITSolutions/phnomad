@@ -58,6 +58,7 @@ jobs:
           set -e
           PORT="${VPS_PORT:-22}"
           USERNAME="${VPS_USER:-root}"
+          ssh -p "${PORT}" -o BatchMode=yes -o PreferredAuthentications=publickey -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${USERNAME}@${VPS_HOST} "mkdir -p /phnomad"
           rsync -az --delete \
             --exclude '.git' \
             --exclude 'node_modules' \
@@ -82,7 +83,12 @@ jobs:
             set -e
             APP_DIR="/phnomad"
 
+            echo "Running on host: $(hostname)"
+            echo "Current user: $(whoami)"
+            echo "App directory: ${APP_DIR}"
+
             cd "${APP_DIR}"
+            test -f docker-compose.yml
 
             cat > .env << 'ENVEOF'
             POSTGRES_USER=${{ secrets.POSTGRES_USER }}
@@ -111,8 +117,11 @@ jobs:
             docker compose config
             docker compose down || true
             docker compose up -d --build --remove-orphans
+            sleep 3
             echo "Current container status:"
             docker compose ps -a
+            echo "Matching containers on host:"
+            docker ps -a --filter "name=visa-reminder" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
             echo "Recent container logs:"
             docker compose logs --tail=50
           EOF
