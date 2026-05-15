@@ -204,12 +204,37 @@ jobs:
             echo "Matching containers on host:"
             docker ps -a --filter "name=visa-reminder" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
             echo "Validating env injection inside containers (masked):"
-            docker inspect visa-reminder-backend --format '{{range .Config.Env}}{{println .}}{{end}}' | \
-              grep -E '^(GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|GOOGLE_CALLBACK_URL|JWT_SECRET|FRONTEND_URL|DATABASE_URL|PHILSMS_API_TOKEN|PAYMONGO_SECRET_KEY)=' | \
-              sed -E 's/^([^=]+)=.*$/\1=SET/'
-            docker inspect visa-reminder-frontend --format '{{range .Config.Env}}{{println .}}{{end}}' | \
-              grep -E '^(VITE_API_URL|VITE_GOOGLE_CLIENT_ID)=' | \
-              sed -E 's/^([^=]+)=.*$/\1=SET/'
+            backend_env=$(docker inspect visa-reminder-backend --format '{{range .Config.Env}}{{println .}}{{end}}')
+            frontend_env=$(docker inspect visa-reminder-frontend --format '{{range .Config.Env}}{{println .}}{{end}}')
+
+            for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL JWT_SECRET FRONTEND_URL DATABASE_URL PHILSMS_API_TOKEN PAYMONGO_SECRET_KEY; do
+              echo "$backend_env" | grep -q "^${key}=" || { echo "Missing backend runtime env: ${key}"; exit 1; }
+              value=$(echo "$backend_env" | grep -E "^${key}=" | head -n1 | cut -d'=' -f2-)
+              [ -n "$value" ] || { echo "Empty backend runtime env: ${key}"; exit 1; }
+              echo "${key}=SET"
+            done
+
+            for key in VITE_API_URL VITE_GOOGLE_CLIENT_ID; do
+              echo "$frontend_env" | grep -q "^${key}=" || { echo "Missing frontend runtime env: ${key}"; exit 1; }
+              value=$(echo "$frontend_env" | grep -E "^${key}=" | head -n1 | cut -d'=' -f2-)
+              [ -n "$value" ] || { echo "Empty frontend runtime env: ${key}"; exit 1; }
+              echo "${key}=SET"
+            done
+
+            # Guardrails against fallback defaults accidentally reaching production.
+            backend_frontend_url=$(echo "$backend_env" | grep -E '^FRONTEND_URL=' | head -n1 | cut -d'=' -f2-)
+            backend_callback_url=$(echo "$backend_env" | grep -E '^GOOGLE_CALLBACK_URL=' | head -n1 | cut -d'=' -f2-)
+            backend_jwt_secret=$(echo "$backend_env" | grep -E '^JWT_SECRET=' | head -n1 | cut -d'=' -f2-)
+            frontend_api_url=$(echo "$frontend_env" | grep -E '^VITE_API_URL=' | head -n1 | cut -d'=' -f2-)
+
+            [ "$backend_frontend_url" != "https://localhost:5173" ] || { echo "FRONTEND_URL is still localhost fallback"; exit 1; }
+            [ "$backend_callback_url" != "https://localhost:3000/auth/google/callback" ] || { echo "GOOGLE_CALLBACK_URL is still localhost fallback"; exit 1; }
+            [ "$backend_jwt_secret" != "replace-with-a-strong-secret" ] || { echo "JWT_SECRET is still default fallback"; exit 1; }
+            [ "$frontend_api_url" != "https://localhost:3000" ] || { echo "VITE_API_URL is still localhost fallback"; exit 1; }
+
+            echo "Running post-deploy reachability checks on VPS..."
+            curl -ksSf https://127.0.0.1:3000/auth/me > /dev/null || { echo "Backend HTTPS endpoint is not reachable"; exit 1; }
+            curl -ksSf https://127.0.0.1:5173 > /dev/null || { echo "Frontend HTTPS endpoint is not reachable"; exit 1; }
             echo "Recent container logs:"
             docker compose --env-file .env logs --tail=50
           EOF
