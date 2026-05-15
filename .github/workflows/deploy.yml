@@ -107,6 +107,12 @@ jobs:
             VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}
             ENVEOF
 
+            echo "Validating compose configuration..."
+            docker compose config
             docker compose down || true
-            docker compose up -d --build
+            docker compose up -d --build --remove-orphans
+            echo "Current container status:"
+            docker compose ps -a
+            echo "Recent container logs:"
+            docker compose logs --tail=50
           EOF
