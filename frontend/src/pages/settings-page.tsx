@@ -6,6 +6,7 @@ import { getVisas, updateVisa } from '../features/visa/visa-api';
 import { queryClient } from '../app/query-client';
 import { getDeliveryPreferences, saveDeliveryPreferences, type SendMode } from '../features/subscriptions/delivery-preferences';
 import { formatVisaType } from '../features/visa/visa-rules';
+import { ApiError } from '../lib/api';
 
 const INTERVALS = [30, 14, 7, 3, 1];
 
@@ -15,6 +16,10 @@ export function SettingsPage() {
     const [ccSmsRecipients, setCcSmsRecipients] = useState<string[]>(['']);
     const [ccEmailRecipients, setCcEmailRecipients] = useState<string[]>(['']);
     const [channelMode, setChannelMode] = useState<'sms-only' | 'email-only' | 'both'>('both');
+    const [draftChannelMode, setDraftChannelMode] = useState<'sms-only' | 'email-only' | 'both'>('both');
+    const [draftReminderIntervals, setDraftReminderIntervals] = useState<number[]>(INTERVALS);
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     useEffect(() => {
         const saved = getDeliveryPreferences();
@@ -98,7 +103,11 @@ export function SettingsPage() {
             reminderIntervals: number[];
         }) => {
             if (!token) throw new Error('Missing token');
-            return updateVisa(token, payload.visaId, payload);
+            return updateVisa(token, payload.visaId, {
+                smsEnabled: payload.smsEnabled,
+                emailEnabled: payload.emailEnabled,
+                reminderIntervals: payload.reminderIntervals,
+            });
         },
         onSuccess: async (_, variables) => {
             const nextChannelMode = variables.smsEnabled && variables.emailEnabled
@@ -107,7 +116,27 @@ export function SettingsPage() {
                     ? 'sms-only'
                     : 'email-only';
             setChannelMode(nextChannelMode);
+            setDraftChannelMode(nextChannelMode);
+            setDraftReminderIntervals(variables.reminderIntervals);
+            setSaveError(null);
+            setSaveMessage('Settings saved.');
             await queryClient.invalidateQueries({ queryKey: ['visas'] });
+        },
+        onError: (error: unknown) => {
+            setSaveMessage(null);
+            if (error instanceof ApiError) {
+                if (error.status === 404) {
+                    setSaveError('Visa record was not found for this account. Please reload and try again.');
+                    return;
+                }
+
+                if (error.status === 400) {
+                    setSaveError('Invalid settings payload. Please retry saving your changes.');
+                    return;
+                }
+            }
+
+            setSaveError('Could not save settings. Please try again.');
         },
     });
 
@@ -124,6 +153,8 @@ export function SettingsPage() {
                 : 'email-only';
 
         setChannelMode(nextChannelMode);
+        setDraftChannelMode(nextChannelMode);
+        setDraftReminderIntervals(currentVisa.reminderIntervals);
     }, [visasQuery.data]);
 
     if (visasQuery.isLoading) {
@@ -135,11 +166,51 @@ export function SettingsPage() {
         return <Navigate to="/onboarding" replace />;
     }
 
+    const hasUnsavedBackendChanges =
+        draftChannelMode !== channelMode ||
+        JSON.stringify([...draftReminderIntervals].sort((a, b) => b - a)) !== JSON.stringify([...visa.reminderIntervals].sort((a, b) => b - a));
+
+    const saveVisaSettings = async () => {
+        const smsEnabled = draftChannelMode === 'sms-only' || draftChannelMode === 'both';
+        const emailEnabled = draftChannelMode === 'email-only' || draftChannelMode === 'both';
+
+        if (!smsEnabled && !emailEnabled) {
+            setSaveMessage(null);
+            setSaveError('Please enable at least one reminder channel.');
+            return;
+        }
+
+        await updateMutation.mutateAsync({
+            visaId: visa.id,
+            smsEnabled,
+            emailEnabled,
+            reminderIntervals: [...draftReminderIntervals].sort((a, b) => b - a),
+        });
+    };
+
+    const saveButtonLabel = updateMutation.isPending ? 'Saving...' : 'Save Changes';
+
     return (
         <main className="mx-auto w-full max-w-4xl px-6 py-10">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft md:p-8">
                 <h1 className="text-2xl font-semibold text-slate-900">Reminder Settings</h1>
                 <p className="mt-1 text-slate-600">Choose channels and intervals for your visa expiry alerts.</p>
+
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm text-slate-600">Save your reminder settings after making changes.</p>
+                        <button
+                            type="button"
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={updateMutation.isPending || !hasUnsavedBackendChanges}
+                            onClick={saveVisaSettings}
+                        >
+                            {saveButtonLabel}
+                        </button>
+                    </div>
+                    {saveMessage ? <p className="mt-2 text-sm font-medium text-emerald-700">{saveMessage}</p> : null}
+                    {saveError ? <p className="mt-2 text-sm font-medium text-rose-700">{saveError}</p> : null}
+                </div>
 
                 <div className="mt-6 rounded-2xl bg-slate-50 p-4">
                     <p className="mb-2 text-sm font-medium text-slate-700">Reminder channel</p>
@@ -150,33 +221,28 @@ export function SettingsPage() {
                             { label: 'Email only', smsEnabled: false, emailEnabled: true },
                             { label: 'Both', smsEnabled: true, emailEnabled: true },
                         ].map((option) => {
-                            const isActive = channelMode === (
-                                option.smsEnabled && option.emailEnabled
-                                    ? 'both'
-                                    : option.smsEnabled
-                                        ? 'sms-only'
-                                        : 'email-only'
-                            );
                             return (
                                 <button
                                     key={option.label}
                                     type="button"
-                                    className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${isActive ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'} ${updateMutation.isPending ? 'cursor-wait opacity-70' : ''}`}
+                                    className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${draftChannelMode === (
+                                        option.smsEnabled && option.emailEnabled
+                                            ? 'both'
+                                            : option.smsEnabled
+                                                ? 'sms-only'
+                                                : 'email-only'
+                                    ) ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'} ${updateMutation.isPending ? 'cursor-wait opacity-70' : ''}`}
                                     disabled={updateMutation.isPending}
-                                    onClick={async () => {
-                                        setChannelMode(
+                                    onClick={() => {
+                                        setDraftChannelMode(
                                             option.smsEnabled && option.emailEnabled
                                                 ? 'both'
                                                 : option.smsEnabled
                                                     ? 'sms-only'
                                                     : 'email-only',
                                         );
-                                        await updateMutation.mutateAsync({
-                                            visaId: visa.id,
-                                            smsEnabled: option.smsEnabled,
-                                            emailEnabled: option.emailEnabled,
-                                            reminderIntervals: visa.reminderIntervals,
-                                        });
+                                        setSaveMessage(null);
+                                        setSaveError(null);
                                     }}
                                 >
                                     {option.label}
@@ -190,23 +256,19 @@ export function SettingsPage() {
                     <p className="mb-2 text-sm font-medium text-slate-700">Reminder intervals</p>
                     <div className="flex flex-wrap gap-2">
                         {INTERVALS.map((interval) => {
-                            const enabled = visa.reminderIntervals.includes(interval);
+                            const enabled = draftReminderIntervals.includes(interval);
                             return (
                                 <button
                                     type="button"
                                     key={interval}
                                     className={`rounded-full px-3 py-1 text-sm ${enabled ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
-                                    onClick={async () => {
+                                    onClick={() => {
                                         const next = enabled
-                                            ? visa.reminderIntervals.filter((item) => item !== interval)
-                                            : [...visa.reminderIntervals, interval].sort((a, b) => b - a);
-
-                                        await updateMutation.mutateAsync({
-                                            visaId: visa.id,
-                                            smsEnabled: visa.smsEnabled,
-                                            emailEnabled: visa.emailEnabled,
-                                            reminderIntervals: next,
-                                        });
+                                            ? draftReminderIntervals.filter((item) => item !== interval)
+                                            : [...draftReminderIntervals, interval].sort((a, b) => b - a);
+                                        setDraftReminderIntervals(next);
+                                        setSaveMessage(null);
+                                        setSaveError(null);
                                     }}
                                 >
                                     {interval} days
@@ -298,6 +360,22 @@ export function SettingsPage() {
                             </div>
                         </div>
                     ) : null}
+                </div>
+
+                <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm text-slate-600">Review your channel and interval changes, then save.</p>
+                        <button
+                            type="button"
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={updateMutation.isPending || !hasUnsavedBackendChanges}
+                            onClick={saveVisaSettings}
+                        >
+                            {saveButtonLabel}
+                        </button>
+                    </div>
+                    {saveMessage ? <p className="mt-2 text-sm font-medium text-emerald-700">{saveMessage}</p> : null}
+                    {saveError ? <p className="mt-2 text-sm font-medium text-rose-700">{saveError}</p> : null}
                 </div>
 
                 <div className="mt-6">
