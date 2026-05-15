@@ -235,7 +235,6 @@ jobs:
 
             docker compose --env-file .env down || true
             docker compose --env-file .env up -d --build --remove-orphans --force-recreate
-            sleep 3
             echo "Current container status:"
             docker compose --env-file .env ps -a
             echo "Matching containers on host:"
@@ -270,10 +269,48 @@ jobs:
             [ "$backend_jwt_secret" != "replace-with-a-strong-secret" ] || { echo "JWT_SECRET is still default fallback"; exit 1; }
             [ "$frontend_api_url" != "https://localhost:3000" ] || { echo "VITE_API_URL is still localhost fallback"; exit 1; }
 
-            echo "Running post-deploy reachability checks on VPS..."
-            curl -sSf http://127.0.0.1:3000/auth/me > /dev/null || { echo "Backend HTTP endpoint is not reachable"; exit 1; }
-            curl -sSf http://127.0.0.1:5173 > /dev/null || { echo "Frontend HTTP endpoint is not reachable"; exit 1; }
-            curl -sSf http://127.0.0.1:80 > /dev/null || { echo "Traefik HTTP entrypoint is not reachable"; exit 1; }
+            echo "Running post-deploy readiness checks on VPS..."
+
+            wait_for_http() {
+              local name="$1"
+              local url="$2"
+              local accepted_codes="$3"
+              local host_header="${4:-}"
+              local attempts="${5:-30}"
+              local delay="${6:-2}"
+
+              local code
+              local i
+              for i in $(seq 1 "$attempts"); do
+                if [ -n "$host_header" ]; then
+                  code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: ${host_header}" "$url" || true)
+                else
+                  code=$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)
+                fi
+
+                for ok in $accepted_codes; do
+                  if [ "$code" = "$ok" ]; then
+                    echo "$name reachable (HTTP $code)"
+                    return 0
+                  fi
+                done
+
+                echo "[$i/$attempts] Waiting for $name (last HTTP code: ${code:-n/a})"
+                sleep "$delay"
+              done
+
+              echo "$name is not ready after ${attempts} attempts"
+              return 1
+            }
+
+            app_domain=$(grep -E '^APP_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
+            api_domain=$(grep -E '^API_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
+
+            wait_for_http "Backend container" "http://127.0.0.1:3000/auth/me" "200 204 301 302 401 403" || { echo "Backend HTTP endpoint is not reachable"; exit 1; }
+            wait_for_http "Frontend container" "http://127.0.0.1:5173" "200 204 301 302" || { echo "Frontend HTTP endpoint is not reachable"; exit 1; }
+            wait_for_http "Traefik web entrypoint" "http://127.0.0.1" "200 301 302 307 308 404" "$app_domain" || { echo "Traefik HTTP entrypoint is not reachable"; exit 1; }
+            wait_for_http "Traefik API route" "http://127.0.0.1/auth/me" "200 204 301 302 401 403" "$api_domain" || { echo "Traefik API route is not reachable"; exit 1; }
+
             echo "Recent container logs:"
             docker compose --env-file .env logs --tail=50
           EOF
