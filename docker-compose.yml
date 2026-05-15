@@ -88,6 +88,7 @@ services:
       VITE_API_URL: ${VITE_API_URL:-https://localhost:3000}
       VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
       VITE_DEV_HTTPS: ${VITE_DEV_HTTPS:-false}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-*}
     ports:
       - '127.0.0.1:5173:5173'
     volumes:

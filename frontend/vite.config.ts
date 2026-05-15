@@ -31,6 +31,28 @@ function resolveHttpsConfig() {
   return undefined
 }
 
+function resolveAllowedHosts() {
+  const fromEnv = String(process.env.VITE_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  if (fromEnv.some((value) => value === '*' || value.toLowerCase() === 'all')) {
+    return true
+  }
+
+  if (fromEnv.length > 0) {
+    return fromEnv
+  }
+
+  return [
+    'localhost',
+    '127.0.0.1',
+    'expatvisareminders.com',
+    'www.expatvisareminders.com',
+  ]
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -38,5 +60,6 @@ export default defineConfig({
     https: resolveHttpsConfig(),
     port: 5173,
     host: true,
+    allowedHosts: resolveAllowedHosts(),
   },
 })

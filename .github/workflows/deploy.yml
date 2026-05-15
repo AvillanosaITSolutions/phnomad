@@ -385,6 +385,20 @@ jobs:
               echo "---------------------------"
             }
 
+            dump_tls_diagnostics() {
+              local domain="$1"
+              echo "--- TLS diagnostics for ${domain} ---"
+              echo "Public DNS A records:"
+              getent ahostsv4 "$domain" || true
+              echo "Local HTTPS probe (SNI + resolve to 127.0.0.1):"
+              curl -vkI --resolve "${domain}:443:127.0.0.1" "https://${domain}/" 2>&1 | tail -n 40 || true
+              echo "Certificate presented by Traefik on 127.0.0.1:443 for SNI=${domain}:"
+              echo | openssl s_client -servername "$domain" -connect 127.0.0.1:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -ext subjectAltName || true
+              echo "ACME domains found in /letsencrypt/acme.json:"
+              docker exec visa-reminder-traefik sh -lc "grep -Eo '\\"main\\":\\"[^\\"]+\\"|\\"sans\\":\\[[^]]*\\]' /letsencrypt/acme.json | head -n 80" || true
+              echo "-------------------------------------"
+            }
+
             app_domain=$(grep -E '^APP_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
             www_domain=$(grep -E '^WWW_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
             api_domain=$(grep -E '^API_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
@@ -395,9 +409,9 @@ jobs:
             wait_for_http "Traefik web route (www)" "http://127.0.0.1" "200 301 302 307 308" "$www_domain" || { echo "Traefik HTTP web route (www) is not reachable"; dump_traefik_diagnostics; exit 1; }
             wait_for_http "Traefik API route" "http://127.0.0.1/auth/me" "200 204 301 302 401 403" "$api_domain" || { echo "Traefik API route is not reachable"; dump_traefik_diagnostics; exit 1; }
 
-            wait_for_https "Primary domain" "$app_domain" "/" "200 301 302" 40 3 || { echo "Primary domain TLS check failed"; dump_traefik_diagnostics; exit 1; }
-            wait_for_https "WWW domain" "$www_domain" "/" "200 301 302" 40 3 || { echo "WWW domain TLS check failed"; dump_traefik_diagnostics; exit 1; }
-            wait_for_https "API domain" "$api_domain" "/auth/me" "200 204 301 302 401 403" 40 3 || { echo "API domain TLS check failed"; dump_traefik_diagnostics; exit 1; }
+            wait_for_https "Primary domain" "$app_domain" "/" "200 301 302 307 308" 40 3 || { echo "Primary domain TLS check failed"; dump_traefik_diagnostics; dump_tls_diagnostics "$app_domain"; exit 1; }
+            wait_for_https "WWW domain" "$www_domain" "/" "200 301 302 307 308" 40 3 || { echo "WWW domain TLS check failed"; dump_traefik_diagnostics; dump_tls_diagnostics "$www_domain"; exit 1; }
+            wait_for_https "API domain" "$api_domain" "/auth/me" "200 204 301 302 307 308 401 403" 40 3 || { echo "API domain TLS check failed"; dump_traefik_diagnostics; dump_tls_diagnostics "$api_domain"; exit 1; }
 
             echo "Recent container logs:"
             docker compose --env-file .env logs --tail=50
