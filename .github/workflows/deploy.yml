@@ -23,15 +23,18 @@ jobs:
         env:
           VPS_HOST: 88.222.245.88
           VPS_PORT: ${{ secrets.VPS_SSH_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           set -e
           PORT="${VPS_PORT:-22}"
+          USERNAME="${VPS_USER:-root}"
           if [ -z "${VPS_SSH_KEY}" ]; then
             echo "VPS_SSH_KEY secret is empty or missing."
             exit 1
           fi
-          echo "Using host ${VPS_HOST}:${PORT}"
+          echo "Using SSH target ${USERNAME}@${VPS_HOST}:${PORT}"
+          ssh-add -l || true
 
       - name: Check SSH reachability
         env:
@@ -49,11 +52,12 @@ jobs:
       - name: Deploy app stack to VPS
         env:
           VPS_HOST: 88.222.245.88
-          VPS_USER: root
+          VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
           PORT="${VPS_PORT:-22}"
-          ssh -p "${PORT}" -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${VPS_USER}@${VPS_HOST} << 'EOF'
+          USERNAME="${VPS_USER:-root}"
+          ssh -p "${PORT}" -o BatchMode=yes -o PreferredAuthentications=publickey -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${USERNAME}@${VPS_HOST} << 'EOF'
             set -e
 
             REPO_URL="https://github.com/Kim-Avillanosa/phnomad.git"
