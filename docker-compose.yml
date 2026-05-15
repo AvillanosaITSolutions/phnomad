@@ -5,8 +5,11 @@ services:
     image: traefik:v3.1
     container_name: visa-reminder-traefik
     restart: unless-stopped
+    environment:
+      DOCKER_API_VERSION: "1.44"
     command:
       - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entryPoint.to=websecure

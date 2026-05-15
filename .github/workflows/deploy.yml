@@ -65,7 +65,7 @@ jobs:
           set -e
           missing=0
           for key in \
-            ACME_EMAIL APP_DOMAIN API_DOMAIN \
+            ACME_EMAIL APP_DOMAIN WWW_DOMAIN API_DOMAIN \
             POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL DATABASE_URL JWT_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL \
             PHILSMS_API_URL PHILSMS_API_TOKEN PHILSMS_SENDER_ID \
@@ -127,13 +127,17 @@ jobs:
             local raw="$1"
             local clean
             clean=$(printf '%s' "$raw" | tr -d '[:space:]')
+            clean="${clean#\"}"
+            clean="${clean%\"}"
+            clean="${clean#\'}"
+            clean="${clean%\'}"
             clean="${clean#http://}"
             clean="${clean#https://}"
             clean="${clean%%/*}"
             clean="${clean%%\?*}"
             clean="${clean%%\#*}"
             clean="${clean%%:*}"
-            printf '%s' "$clean"
+            printf '%s' "$clean" | tr '[:upper:]' '[:lower:]'
           }
 
           APP_DOMAIN_CLEAN="$(normalize_domain "$APP_DOMAIN")"
@@ -145,6 +149,8 @@ jobs:
             echo "APP_DOMAIN='$APP_DOMAIN_CLEAN' WWW_DOMAIN='$WWW_DOMAIN_CLEAN' API_DOMAIN='$API_DOMAIN_CLEAN'"
             exit 1
           fi
+
+          echo "Normalized domains: APP_DOMAIN=${APP_DOMAIN_CLEAN} WWW_DOMAIN=${WWW_DOMAIN_CLEAN} API_DOMAIN=${API_DOMAIN_CLEAN}"
 
           cat > .env.deploy <<EOF
           ACME_EMAIL=${ACME_EMAIL}
@@ -274,6 +280,12 @@ jobs:
             echo "Matching containers on host:"
             docker ps -a --filter "name=visa-reminder" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
             docker ps -a --filter "name=visa-reminder-traefik" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+            traefik_logs=$(docker compose --env-file .env logs --tail=200 traefik || true)
+            if echo "$traefik_logs" | grep -qi 'client version .* too old\|minimum supported API version'; then
+              echo "Traefik cannot talk to Docker due to API version mismatch."
+              echo "$traefik_logs"
+              exit 1
+            fi
             echo "Validating env injection inside containers (masked):"
             backend_env=$(docker inspect visa-reminder-backend --format '{{range .Config.Env}}{{println .}}{{end}}')
             frontend_env=$(docker inspect visa-reminder-frontend --format '{{range .Config.Env}}{{println .}}{{end}}')
@@ -337,13 +349,55 @@ jobs:
               return 1
             }
 
+            wait_for_https() {
+              local name="$1"
+              local domain="$2"
+              local path="$3"
+              local accepted_codes="$4"
+              local attempts="${5:-30}"
+              local delay="${6:-2}"
+
+              local code
+              local i
+              for i in $(seq 1 "$attempts"); do
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --resolve "${domain}:443:127.0.0.1" "https://${domain}${path}" || true)
+
+                for ok in $accepted_codes; do
+                  if [ "$code" = "$ok" ]; then
+                    echo "$name reachable with valid TLS (HTTP $code)"
+                    return 0
+                  fi
+                done
+
+                echo "[$i/$attempts] Waiting for $name over HTTPS (last HTTP code: ${code:-n/a})"
+                sleep "$delay"
+              done
+
+              echo "$name HTTPS is not ready after ${attempts} attempts"
+              return 1
+            }
+
+            dump_traefik_diagnostics() {
+              echo "--- Traefik diagnostics ---"
+              docker compose --env-file .env ps traefik || true
+              docker compose --env-file .env logs --tail=120 traefik || true
+              docker exec visa-reminder-traefik sh -lc 'ls -l /letsencrypt || true; test -f /letsencrypt/acme.json && wc -c /letsencrypt/acme.json || true' || true
+              echo "---------------------------"
+            }
+
             app_domain=$(grep -E '^APP_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
+            www_domain=$(grep -E '^WWW_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
             api_domain=$(grep -E '^API_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
 
             wait_for_http "Backend container" "http://127.0.0.1:3000/auth/me" "200 204 301 302 401 403" || { echo "Backend HTTP endpoint is not reachable"; exit 1; }
             wait_for_http "Frontend container" "http://127.0.0.1:5173" "200 204 301 302" || { echo "Frontend HTTP endpoint is not reachable"; exit 1; }
-            wait_for_http "Traefik web entrypoint" "http://127.0.0.1" "200 301 302 307 308 404" "$app_domain" || { echo "Traefik HTTP entrypoint is not reachable"; exit 1; }
-            wait_for_http "Traefik API route" "http://127.0.0.1/auth/me" "200 204 301 302 401 403" "$api_domain" || { echo "Traefik API route is not reachable"; exit 1; }
+            wait_for_http "Traefik web route" "http://127.0.0.1" "200 301 302 307 308" "$app_domain" || { echo "Traefik HTTP web route is not reachable"; dump_traefik_diagnostics; exit 1; }
+            wait_for_http "Traefik web route (www)" "http://127.0.0.1" "200 301 302 307 308" "$www_domain" || { echo "Traefik HTTP web route (www) is not reachable"; dump_traefik_diagnostics; exit 1; }
+            wait_for_http "Traefik API route" "http://127.0.0.1/auth/me" "200 204 301 302 401 403" "$api_domain" || { echo "Traefik API route is not reachable"; dump_traefik_diagnostics; exit 1; }
+
+            wait_for_https "Primary domain" "$app_domain" "/" "200 301 302" 40 3 || { echo "Primary domain TLS check failed"; dump_traefik_diagnostics; exit 1; }
+            wait_for_https "WWW domain" "$www_domain" "/" "200 301 302" 40 3 || { echo "WWW domain TLS check failed"; dump_traefik_diagnostics; exit 1; }
+            wait_for_https "API domain" "$api_domain" "/auth/me" "200 204 301 302 401 403" 40 3 || { echo "API domain TLS check failed"; dump_traefik_diagnostics; exit 1; }
 
             echo "Recent container logs:"
             docker compose --env-file .env logs --tail=50
