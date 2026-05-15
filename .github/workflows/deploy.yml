@@ -123,11 +123,34 @@ jobs:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         run: |
+          normalize_domain() {
+            local raw="$1"
+            local clean
+            clean=$(printf '%s' "$raw" | tr -d '[:space:]')
+            clean="${clean#http://}"
+            clean="${clean#https://}"
+            clean="${clean%%/*}"
+            clean="${clean%%\?*}"
+            clean="${clean%%\#*}"
+            clean="${clean%%:*}"
+            printf '%s' "$clean"
+          }
+
+          APP_DOMAIN_CLEAN="$(normalize_domain "$APP_DOMAIN")"
+          WWW_DOMAIN_CLEAN="$(normalize_domain "$WWW_DOMAIN")"
+          API_DOMAIN_CLEAN="$(normalize_domain "$API_DOMAIN")"
+
+          if [ -z "$APP_DOMAIN_CLEAN" ] || [ -z "$WWW_DOMAIN_CLEAN" ] || [ -z "$API_DOMAIN_CLEAN" ]; then
+            echo "One or more domain secrets are invalid after normalization."
+            echo "APP_DOMAIN='$APP_DOMAIN_CLEAN' WWW_DOMAIN='$WWW_DOMAIN_CLEAN' API_DOMAIN='$API_DOMAIN_CLEAN'"
+            exit 1
+          fi
+
           cat > .env.deploy <<EOF
           ACME_EMAIL=${ACME_EMAIL}
-          APP_DOMAIN=${APP_DOMAIN}
-          WWW_DOMAIN=${WWW_DOMAIN}
-          API_DOMAIN=${API_DOMAIN}
+          APP_DOMAIN=${APP_DOMAIN_CLEAN}
+          WWW_DOMAIN=${WWW_DOMAIN_CLEAN}
+          API_DOMAIN=${API_DOMAIN_CLEAN}
           POSTGRES_USER=${POSTGRES_USER}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           POSTGRES_DB=${POSTGRES_DB}
