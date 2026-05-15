@@ -36,6 +36,48 @@ jobs:
           echo "Using SSH target ${USERNAME}@${VPS_HOST}:${PORT}"
           ssh-add -l || true
 
+      - name: Validate required app secrets
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_CALLBACK_URL: ${{ secrets.GOOGLE_CALLBACK_URL }}
+          PHILSMS_API_URL: ${{ secrets.PHILSMS_API_URL }}
+          PHILSMS_API_TOKEN: ${{ secrets.PHILSMS_API_TOKEN }}
+          PHILSMS_SENDER_ID: ${{ secrets.PHILSMS_SENDER_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          PAYMONGO_SECRET_KEY: ${{ secrets.PAYMONGO_SECRET_KEY }}
+          PAYMONGO_WEBHOOK_AUTH: ${{ secrets.PAYMONGO_WEBHOOK_AUTH }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+        run: |
+          set -e
+          missing=0
+          for key in \
+            POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BACKEND_PORT FRONTEND_URL DATABASE_URL JWT_SECRET \
+            GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_CALLBACK_URL \
+            PHILSMS_API_URL PHILSMS_API_TOKEN PHILSMS_SENDER_ID \
+            GMAIL_USER GMAIL_APP_PASSWORD PAYMONGO_SECRET_KEY PAYMONGO_WEBHOOK_AUTH \
+            VITE_API_URL VITE_GOOGLE_CLIENT_ID; do
+            value="${!key}"
+            if [ -z "$value" ]; then
+              echo "Missing required secret: $key"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "One or more required secrets are missing. Aborting deploy."
+            exit 1
+          fi
+
       - name: Check SSH reachability
         env:
           VPS_HOST: 88.222.245.88
