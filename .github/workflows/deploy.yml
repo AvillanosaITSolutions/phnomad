@@ -49,6 +49,27 @@ jobs:
             exit 1
           }
 
+      - name: Sync repository to VPS
+        env:
+          VPS_HOST: 88.222.245.88
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_SSH_PORT }}
+        run: |
+          set -e
+          PORT="${VPS_PORT:-22}"
+          USERNAME="${VPS_USER:-root}"
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'frontend/node_modules' \
+            --exclude 'backend/node_modules' \
+            --exclude 'frontend/dist' \
+            --exclude 'backend/dist' \
+            --exclude '.env' \
+            --exclude '.env.vps' \
+            -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
+            ./ "${USERNAME}@${VPS_HOST}:/phnomad/"
+
       - name: Deploy app stack to VPS
         env:
           VPS_HOST: 88.222.245.88
@@ -59,18 +80,7 @@ jobs:
           USERNAME="${VPS_USER:-root}"
           ssh -p "${PORT}" -o BatchMode=yes -o PreferredAuthentications=publickey -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${USERNAME}@${VPS_HOST} << 'EOF'
             set -e
-
-            REPO_URL="https://github.com/Kim-Avillanosa/phnomad.git"
             APP_DIR="/phnomad"
-
-            if [ ! -d "${APP_DIR}/.git" ]; then
-              git clone "${REPO_URL}" "${APP_DIR}"
-            else
-              cd "${APP_DIR}"
-              git fetch origin
-              git checkout -f main
-              git pull origin main
-            fi
 
             cd "${APP_DIR}"
 
