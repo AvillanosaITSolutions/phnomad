@@ -212,6 +212,27 @@ jobs:
 
             echo "Validating compose configuration..."
             docker compose --env-file .env config
+
+            echo "Releasing ports 80/443 for Traefik..."
+            for svc in nginx apache2 caddy; do
+              if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$svc"; then
+                echo "Stopping host service: $svc"
+                systemctl stop "$svc" || true
+              fi
+            done
+
+            conflict_ids=$(docker ps --format '{{.ID}} {{.Ports}} {{.Names}}' | awk '/(^|,)0\.0\.0\.0:80->|(^|,)0\.0\.0\.0:443->|(^|,):::80->|(^|,):::443->/ {print $1}')
+            if [ -n "$conflict_ids" ]; then
+              echo "Stopping containers using 80/443: $conflict_ids"
+              echo "$conflict_ids" | xargs -r docker rm -f
+            fi
+
+            if ss -ltn '( sport = :80 or sport = :443 )' | grep -E ':80 |:443 ' >/dev/null; then
+              echo "Ports 80/443 are still occupied."
+              ss -ltnp '( sport = :80 or sport = :443 )' || true
+              exit 1
+            fi
+
             docker compose --env-file .env down || true
             docker compose --env-file .env up -d --build --remove-orphans --force-recreate
             sleep 3
