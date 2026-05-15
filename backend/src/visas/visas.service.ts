@@ -117,11 +117,17 @@ export class VisasService {
 
     if (dto.entryDate) data.entryDate = new Date(dto.entryDate);
 
+    const nextExpiryDate = dto.expiryDate
+      ? new Date(dto.expiryDate)
+      : undefined;
+    if (nextExpiryDate) {
+      data.expiryDate = nextExpiryDate;
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const updatedVisa = await tx.visa.update({ where: { id: visaId }, data });
 
-      if (dto.expiryDate) {
-        const nextExpiryDate = new Date(dto.expiryDate);
+      if (nextExpiryDate) {
         const expiryChanged =
           existingVisa.expiryDate.getTime() !== nextExpiryDate.getTime();
 
