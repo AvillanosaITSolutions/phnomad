@@ -2,7 +2,7 @@ name: visa-reminder
 
 services:
   traefik:
-    image: traefik:v3.4
+    image: traefik:latest
     container_name: visa-reminder-traefik
     restart: unless-stopped
     command:
