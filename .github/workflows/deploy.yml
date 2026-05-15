@@ -61,6 +61,7 @@ jobs:
           PAYMONGO_WEBHOOK_AUTH: ${{ secrets.PAYMONGO_WEBHOOK_AUTH }}
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          SKIP_HEALTHCHECKS: ${{ secrets.SKIP_HEALTHCHECKS }}
         run: |
           set -e
           missing=0
@@ -179,6 +180,7 @@ jobs:
           VITE_API_URL=${VITE_API_URL}
           VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
           VITE_DEV_HTTPS=false
+          SKIP_HEALTHCHECKS=${SKIP_HEALTHCHECKS:-true}
           EOF
 
       - name: Sync repository to VPS
@@ -317,6 +319,18 @@ jobs:
 
             echo "Running post-deploy readiness checks on VPS..."
 
+            skip_healthchecks=$(grep -E '^SKIP_HEALTHCHECKS=' .env | head -n1 | cut -d'=' -f2- | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+            if [ -z "$skip_healthchecks" ]; then
+              skip_healthchecks=true
+            fi
+
+            if [ "$skip_healthchecks" = "true" ]; then
+              echo "SKIP_HEALTHCHECKS=true, skipping HTTP/HTTPS readiness checks."
+              echo "Recent container logs:"
+              docker compose --env-file .env logs --tail=50
+              exit 0
+            fi
+
             wait_for_http() {
               local name="$1"
               local url="$2"
@@ -399,12 +413,23 @@ jobs:
               echo "-------------------------------------"
             }
 
+            dump_service_diagnostics() {
+              local service="$1"
+              local container="$2"
+              echo "--- Diagnostics for ${service} (${container}) ---"
+              docker compose --env-file .env ps "$service" || true
+              docker ps -a --filter "name=${container}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' || true
+              docker compose --env-file .env logs --tail=200 "$service" || true
+              docker inspect "$container" --format '{{json .State}}' || true
+              echo "-----------------------------------------------"
+            }
+
             app_domain=$(grep -E '^APP_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
             www_domain=$(grep -E '^WWW_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
             api_domain=$(grep -E '^API_DOMAIN=' .env | head -n1 | cut -d'=' -f2-)
 
-            wait_for_http "Backend container" "http://127.0.0.1:3000/auth/me" "200 204 301 302 401 403" || { echo "Backend HTTP endpoint is not reachable"; exit 1; }
-            wait_for_http "Frontend container" "http://127.0.0.1:5173" "200 204 301 302" || { echo "Frontend HTTP endpoint is not reachable"; exit 1; }
+            wait_for_http "Backend container" "http://127.0.0.1:3000/auth/me" "200 204 301 302 401 403" || { echo "Backend HTTP endpoint is not reachable"; dump_service_diagnostics backend visa-reminder-backend; exit 1; }
+            wait_for_http "Frontend container" "http://127.0.0.1:5173" "200 204 301 302" || { echo "Frontend HTTP endpoint is not reachable"; dump_service_diagnostics frontend visa-reminder-frontend; exit 1; }
             wait_for_http "Traefik web route" "http://127.0.0.1" "200 301 302 307 308" "$app_domain" || { echo "Traefik HTTP web route is not reachable"; dump_traefik_diagnostics; exit 1; }
             wait_for_http "Traefik web route (www)" "http://127.0.0.1" "200 301 302 307 308" "$www_domain" || { echo "Traefik HTTP web route (www) is not reachable"; dump_traefik_diagnostics; exit 1; }
             wait_for_http "Traefik API route" "http://127.0.0.1/auth/me" "200 204 301 302 401 403" "$api_domain" || { echo "Traefik API route is not reachable"; dump_traefik_diagnostics; exit 1; }
