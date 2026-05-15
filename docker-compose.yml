@@ -1,0 +1,67 @@
+name: visa-reminder
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: visa-reminder-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-visa_reminder}
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-visa_reminder}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: visa-reminder-backend
+    restart: unless-stopped
+    environment:
+      PORT: ${BACKEND_PORT:-3000}
+      FRONTEND_URL: ${FRONTEND_URL:-https://localhost:5173}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/visa_reminder?schema=public}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-a-strong-secret}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-https://localhost:3000/auth/google/callback}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      PHILSMS_API_URL: ${PHILSMS_API_URL:-https://app.philsms.com/api/v3/sms/send}
+      PHILSMS_API_TOKEN: ${PHILSMS_API_TOKEN:-}
+      GMAIL_USER: ${GMAIL_USER:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      PAYMONGO_SECRET_KEY: ${PAYMONGO_SECRET_KEY:-}
+      PAYMONGO_WEBHOOK_AUTH: ${PAYMONGO_WEBHOOK_AUTH:-}
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./certs:/app/certs:ro
+    command: sh -c "npx prisma db push && node dist/main"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: visa-reminder-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-https://localhost:3000}
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
