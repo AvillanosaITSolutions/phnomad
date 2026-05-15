@@ -8,10 +8,13 @@ import { topUpPackages, type TopUpPackage } from '../features/subscriptions/topu
 
 export function TopUpPage() {
     const { token } = useAuth();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [selectedPackage, setSelectedPackage] = useState<TopUpPackage | null>(topUpPackages[0] ?? null);
     const topUpStatus = searchParams.get('topup');
-    const shouldPollCredits = topUpStatus === 'success';
+    // Track if we should poll for credits (only after payment)
+    const [shouldPollCredits, setShouldPollCredits] = useState(topUpStatus === 'success');
+    // Track last credits to detect update
+    const [lastCredits, setLastCredits] = useState<number | null>(null);
 
     const subscriptionQuery = useQuery({
         queryKey: ['subscription'],
@@ -20,7 +23,20 @@ export function TopUpPage() {
             return getMySubscription(token);
         },
         enabled: Boolean(token),
-        refetchInterval: shouldPollCredits ? 3000 : false,
+        refetchInterval: shouldPollCredits ? 1000 : false, // poll every 1s if needed
+        onSuccess: (data) => {
+            const credits = data?.smsCredits ?? 0;
+            // If we were polling for credits and now credits increased, stop polling and clean up URL
+            if (shouldPollCredits && credits > 0 && credits !== lastCredits) {
+                setShouldPollCredits(false);
+                setLastCredits(credits);
+                // Remove ?topup=success from URL without reload
+                searchParams.delete('topup');
+                setSearchParams(searchParams, { replace: true });
+            } else if (shouldPollCredits) {
+                setLastCredits(credits);
+            }
+        },
     });
 
     const topUpMutation = useMutation({
