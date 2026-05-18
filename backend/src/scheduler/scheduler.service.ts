@@ -9,7 +9,6 @@ import type { ScheduledTask, Visa } from '@prisma/client';
 export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
   private readonly reminderJobName = 'visa-reminder-sweep';
-  private readonly temporaryReminderJobName = 'visa-reminder-sweep-temporary';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -62,21 +61,9 @@ export class SchedulerService implements OnModuleInit {
       },
     });
 
-    await this.prisma.scheduledTask.upsert({
-      where: { name: this.temporaryReminderJobName },
-      create: {
-        name: this.temporaryReminderJobName,
-        handler: 'temporaryVisaReminderSweep',
-        cronExpression: '* * * * *',
-        timezone: 'UTC',
-        enabled: true,
-      },
-      update: {
-        handler: 'temporaryVisaReminderSweep',
-        cronExpression: '* * * * *',
-        timezone: 'UTC',
-        enabled: true,
-      },
+    // Remove any leftover temporary per-minute reminder task from the DB
+    await this.prisma.scheduledTask.deleteMany({
+      where: { name: 'visa-reminder-sweep-temporary' },
     });
   }
 
@@ -96,10 +83,7 @@ export class SchedulerService implements OnModuleInit {
         this.schedulerRegistry.deleteCronJob(task.name);
       }
 
-      if (
-        task.handler === 'dailyVisaReminderSweep' ||
-        task.handler === 'temporaryVisaReminderSweep'
-      ) {
+      if (task.handler === 'dailyVisaReminderSweep') {
         const cronJob = CronJob.from({
           cronTime: task.cronExpression,
           timeZone: task.timezone,
@@ -139,10 +123,7 @@ export class SchedulerService implements OnModuleInit {
     }
 
     try {
-      if (
-        task.handler === 'dailyVisaReminderSweep' ||
-        task.handler === 'temporaryVisaReminderSweep'
-      ) {
+      if (task.handler === 'dailyVisaReminderSweep') {
         await this.processReminderSweep(task);
       }
     } catch (error) {
