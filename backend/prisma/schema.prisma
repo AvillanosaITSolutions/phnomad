@@ -18,6 +18,8 @@ model User {
   subscription  Subscription?
   topUpTransactions TopUpTransaction[]
   renewalHistory VisaRenewalHistory[]
+  creditGrantsReceived CreditGrant[] @relation("CreditGrantRecipient")
+  creditGrantsMade     CreditGrant[] @relation("CreditGrantGrantedBy")
 }
 
 model Visa {
@@ -100,6 +102,21 @@ model TopUpTransaction {
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([createdAt])
+}
+
+model CreditGrant {
+  id             String   @id @default(cuid())
+  recipientId    String
+  grantedById    String
+  grantedByEmail String
+  credits        Int
+  createdAt      DateTime @default(now())
+  recipient      User     @relation("CreditGrantRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  grantedBy      User     @relation("CreditGrantGrantedBy", fields: [grantedById], references: [id], onDelete: Cascade)
+
+  @@index([recipientId])
+  @@index([grantedById])
   @@index([createdAt])
 }
 

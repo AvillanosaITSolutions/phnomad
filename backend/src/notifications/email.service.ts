@@ -64,4 +64,35 @@ export class EmailService {
       html,
     });
   }
+
+  async sendCreditGrantEmail(params: {
+    to: string;
+    name: string;
+    credits: number;
+    totalCredits: number;
+  }): Promise<void> {
+    const subject = `You received ${params.credits} SMS credit${
+      params.credits === 1 ? '' : 's'
+    }`;
+
+    const text = `Hi ${params.name}, our team has added ${params.credits} SMS credit${
+      params.credits === 1 ? '' : 's'
+    } to your VisaRemindPH account. Your new balance is ${params.totalCredits} credit${
+      params.totalCredits === 1 ? '' : 's'
+    }.`;
+
+    const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a"><h2 style="margin-bottom:8px">SMS Credits Added</h2><p>Hi <strong>${params.name}</strong>,</p><p>Our team has added <strong>${params.credits} SMS credit${
+      params.credits === 1 ? '' : 's'
+    }</strong> to your VisaRemindPH account.</p><p>Your new balance is <strong>${params.totalCredits} credit${
+      params.totalCredits === 1 ? '' : 's'
+    }</strong>.</p></div>`;
+
+    await this.transporter.sendMail({
+      from: this.fromAddress,
+      to: params.to,
+      subject,
+      text,
+      html,
+    });
+  }
 }

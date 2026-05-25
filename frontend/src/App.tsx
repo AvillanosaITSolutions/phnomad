@@ -1,12 +1,14 @@
 import { createBrowserRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './features/auth/auth-context';
 import { ProtectedRoute } from './features/auth/protected-route';
+import { AdminRoute } from './features/auth/admin-route';
 import { LandingPage } from './pages/landing-page';
 import { OnboardingPage } from './pages/onboarding-page';
 import { DashboardPage } from './pages/dashboard-page';
 import { SettingsPage } from './pages/settings-page';
 import { AuthCallbackPage } from './pages/auth-callback-page';
 import { TopUpPage } from './pages/topup-page';
+import { AdminPage } from './pages/admin-page';
 
 function RootLayout() {
   return (
@@ -33,6 +35,12 @@ const router = createBrowserRouter([
           { path: 'onboarding', element: <OnboardingPage /> },
           { path: 'visas/:id/edit', element: <OnboardingPage /> },
           { path: 'settings', element: <SettingsPage /> },
+        ],
+      },
+      {
+        element: <AdminRoute />,
+        children: [
+          { path: 'admin', element: <AdminPage /> },
         ],
       },
     ],

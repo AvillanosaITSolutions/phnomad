@@ -11,6 +11,7 @@ import { formatVisaType, getVisaRule } from '../features/visa/visa-rules';
 
 export function DashboardPage() {
     const { token, user, logout } = useAuth();
+    const isAdmin = user?.role?.toLowerCase() === 'admin';
     const [sendNowMessage, setSendNowMessage] = useState<string | null>(null);
     const [sendNowError, setSendNowError] = useState<string | null>(null);
 
@@ -77,12 +78,22 @@ export function DashboardPage() {
                         <p className="text-base text-slate-600">Welcome, <strong>{user?.name}</strong></p>
                         <h1 className="mt-1 text-4xl font-bold text-slate-900">Visa Dashboard</h1>
                     </div>
-                    <button
-                        className="rounded-xl bg-slate-200 px-6 py-3 text-lg font-semibold text-slate-900 transition hover:bg-slate-300"
-                        onClick={logout}
-                    >
-                        Logout
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                        {isAdmin ? (
+                            <Link
+                                className="rounded-xl bg-slate-900 px-6 py-3 text-lg font-semibold text-white transition hover:bg-slate-800"
+                                to="/admin"
+                            >
+                                Admin
+                            </Link>
+                        ) : null}
+                        <button
+                            className="rounded-xl bg-slate-200 px-6 py-3 text-lg font-semibold text-slate-900 transition hover:bg-slate-300"
+                            onClick={logout}
+                        >
+                            Logout
+                        </button>
+                    </div>
                 </div>
 
                 {/* MAIN COUNTDOWN SECTION */}
@@ -204,12 +215,22 @@ export function DashboardPage() {
                         <p className="text-sm text-slate-500">Welcome back</p>
                         <h1 className="text-4xl font-bold text-slate-900">{user?.name}'s Visa Dashboard</h1>
                     </div>
-                    <button
-                        className="rounded-xl bg-slate-200 px-6 py-3 text-base font-semibold text-slate-900 transition hover:bg-slate-300"
-                        onClick={logout}
-                    >
-                        Logout
-                    </button>
+                    <div className="flex items-center gap-3">
+                        {isAdmin ? (
+                            <Link
+                                className="rounded-xl bg-slate-900 px-6 py-3 text-base font-semibold text-white transition hover:bg-slate-800"
+                                to="/admin"
+                            >
+                                Admin
+                            </Link>
+                        ) : null}
+                        <button
+                            className="rounded-xl bg-slate-200 px-6 py-3 text-base font-semibold text-slate-900 transition hover:bg-slate-300"
+                            onClick={logout}
+                        >
+                            Logout
+                        </button>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-6">
